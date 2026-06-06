@@ -2,7 +2,7 @@
 
 from typing import List, Dict, Any, Tuple
 from .openrouter import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+from .config import COUNCIL_MODELS, CHAIRMAN_MODEL, CHAIRMAN_FALLBACK_MODELS
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -158,19 +158,24 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages)
+    chairman_models: List[str] = []
+    for model in [CHAIRMAN_MODEL, *CHAIRMAN_FALLBACK_MODELS]:
+        if model not in chairman_models:
+            chairman_models.append(model)
 
-    if response is None:
-        # Fallback if chairman fails
-        return {
-            "model": CHAIRMAN_MODEL,
-            "response": "Error: Unable to generate final synthesis."
-        }
+    for model in chairman_models:
+        response = await query_model(model, messages, timeout=180.0)
+        if response is not None and response.get("content"):
+            return {
+                "model": model,
+                "response": response.get("content", ""),
+                "chairman_attempts": chairman_models[: chairman_models.index(model) + 1],
+            }
 
     return {
         "model": CHAIRMAN_MODEL,
-        "response": response.get('content', '')
+        "response": "Error: Unable to generate final synthesis.",
+        "chairman_attempts": chairman_models,
     }
 
 
