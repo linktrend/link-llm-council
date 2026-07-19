@@ -11,6 +11,12 @@ import asyncio
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .deliberation import (
+    DeliberateRequest,
+    DeliberateResponse,
+    VALID_GATES,
+    build_gate_prompt,
+)
 
 app = FastAPI(title="LLM Council API")
 
@@ -52,8 +58,44 @@ class Conversation(BaseModel):
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
+    """Service metadata."""
     return {"status": "ok", "service": "LLM Council API"}
+
+
+@app.get("/healthz")
+async def healthz():
+    """Production health probe (Traefik / compose healthcheck)."""
+    return {"status": "ok", "service": "LLM Council API"}
+
+
+@app.post("/deliberate", response_model=DeliberateResponse)
+async def deliberate(request: DeliberateRequest):
+    """
+    Run the 3-stage council for a governed gate (G1–G5).
+    Stateless — no conversation storage required on VPS.
+    """
+    if request.gate not in VALID_GATES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid gate {request.gate!r}; expected one of {sorted(VALID_GATES)}",
+        )
+
+    prompt = build_gate_prompt(request)
+    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(prompt)
+
+    deliberation_ref = f"council:{request.gate}:{request.program_id}"
+    if request.run_id:
+        deliberation_ref = f"{deliberation_ref}:{request.run_id}"
+
+    return DeliberateResponse(
+        gate=request.gate,
+        program_id=request.program_id,
+        stage1=stage1_results,
+        stage2=stage2_results,
+        stage3=stage3_result,
+        metadata=metadata,
+        deliberation_ref=deliberation_ref,
+    )
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])

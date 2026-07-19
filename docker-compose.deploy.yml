@@ -1,0 +1,38 @@
+name: link-llm-council
+
+services:
+  llm-council-api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: ${LLM_COUNCIL_IMAGE:-link-llm-council:local}
+    env_file:
+      - ${LLM_COUNCIL_RUNTIME_ENV_FILE:-/opt/linktrend/runtime/link-llm-council/prod.env.runtime}
+    restart: unless-stopped
+    expose:
+      - "8001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-linktrend-network}
+      - traefik.http.routers.${TRAEFIK_ROUTER_NAME:-llm-council}.rule=Host(`${TRAEFIK_HOST:-llm-council.linktrend.internal}`)
+      - traefik.http.routers.${TRAEFIK_ROUTER_NAME:-llm-council}.entrypoints=${TRAEFIK_ENTRYPOINTS:-websecure}
+      - traefik.http.routers.${TRAEFIK_ROUTER_NAME:-llm-council}.tls=true
+      - traefik.http.services.${TRAEFIK_ROUTER_NAME:-llm-council}.loadbalancer.server.port=8001
+    networks:
+      - linktrend-network
+
+networks:
+  linktrend-network:
+    external: true
